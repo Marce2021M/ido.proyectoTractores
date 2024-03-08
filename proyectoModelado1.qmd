@@ -1,0 +1,73 @@
+---
+title: "Clase Modelado 1"
+lang: es
+date: today
+format:
+  pdf:
+    latex_engine: xelatex
+nocite: |
+  @*
+---
+
+# Modelado 1
+
+## Formulación
+
+
+
+```{julia}
+using JuMP, HiGHS
+model = Model(HiGHS.Optimizer)
+
+# Tener en cuenta que x_1 es en realidad x_0
+
+T = 18
+
+R = 5
+
+
+@variable(model, x[1:T], Bin)
+
+@variable(model, y[1:T,1:R], Bin)
+
+@constraint(model, x[T] == 1) # Se deBe vender el tractor el año 17, ya que el Señor Marquez se retira.
+@constraint(model, x[1] == 1) 
+
+
+for t in 1:13
+    @constraint(model, x[t] + x[t+1] + x[t+2] + x[t+3] + x[t+4] >= 1) # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
+end
+
+for t in 1:13
+    @constraint(model, sum(x[t+i] for i in 0:(R-5)) >= 1) # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
+end
+
+for t in 1:15
+    @constraint(model, x[t] + x[t+1] <= 1) # Para asegurar que no compres tractor dos años consecutivos para todo 15 >= t >= 0
+end
+
+for i in 1:T
+    @constraint(model, sum(y[i,j] for j in 1:R) == x[i]) # Suma de Yij debe ser igual a Xi
+end
+
+# Asumiendo que T y R definen los límites de tus índices
+for z in 2:(T+R)
+    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == (z <= T ? x[z] : 0))
+end
+
+
+
+
+@objective(model, Max, 3x[1] + 4x[2] - 3x[3] )
+
+
+
+optimization_result = optimize!(model)
+
+value.(x)
+```
+
+```{julia}
+x[0:17]=0
+```
+
