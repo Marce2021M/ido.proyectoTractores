@@ -14,60 +14,96 @@ nocite: |
 ## Formulación
 
 
-
 ```{julia}
-using JuMP, HiGHS
-model = Model(HiGHS.Optimizer)
+using JuMP, HiGHS;
+model = Model(HiGHS.Optimizer);
 
 # Tener en cuenta que x_1 es en realidad x_0
 
-T = 18
+T = 20; #18 posiciones en la línea temporal de 17 años
 
-R = 5
+R = 6 ;#6 posiciones en la línea temporal de 5 años
 
+# Matriz de valor de mercado de tractor
 
-@variable(model, x[1:T], Bin)
+inflacion = .15; # 15% de inflación anual
 
-@variable(model, y[1:T,1:R], Bin)
+depreciacionInicial = .1; # 10% de depreciación anual
 
-@constraint(model, x[T] == 1) # Se deBe vender el tractor el año 17, ya que el Señor Marquez se retira.
-@constraint(model, x[1] == 1) 
+depreciacionCorriente = .07; # 7% de depreciación anual
 
+pmTractorInicial = 43000/(1+inflacion)^2 ;# Precio inicial de tractor
 
-for t in 1:13
-    @constraint(model, x[t] + x[t+1] + x[t+2] + x[t+3] + x[t+4] >= 1) # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
+# Creamos matriz de precio de mercado de tractor
+matrixPM = ones(1, T) * pmTractorInicial;
+
+for i in 2:T
+    matrixPM[i] = matrixPM[i-1] * (1+inflacion);
 end
+# Creamos matriz de valor en libros de tractor
+matrixPB = ones(T, R);
 
-for t in 1:13
-    @constraint(model, sum(x[t+i] for i in 0:(R-5)) >= 1) # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
-end
-
-for t in 1:15
-    @constraint(model, x[t] + x[t+1] <= 1) # Para asegurar que no compres tractor dos años consecutivos para todo 15 >= t >= 0
+for i in 1:T
+    matrixPB[i, 1] = matrixPM[1, i]*(1-depreciacionInicial);
 end
 
 for i in 1:T
-    @constraint(model, sum(y[i,j] for j in 1:R) == x[i]) # Suma de Yij debe ser igual a Xi
+    for j in 2:R
+        matrixPB[i, j] = matrixPB[i, j-1]*(1-depreciacionCorriente);
+    end
+end
+
+# Creamos matriz de mantenimiento de tractor
+
+matrixC = ones(T, R);
+
+
+
+@variable(model, x[1:T], Bin);
+
+@variable(model, y[1:T,1:R], Bin);
+
+@constraint(model, x[T] == 1); # Se deBe vender el tractor el año 17, ya que el Señor Marquez se retira.
+@constraint(model, x[1] == 1);
+
+ # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
+for t in 1:13
+    @constraint(model, x[t] + x[t+1] + x[t+2] + x[t+3] + x[t+4] >= 1);
+end
+
+# Para asegurar que no compres tractor dos años consecutivos para todo 15 >= t >= 0
+for t in 1:16
+    @constraint(model, x[t] + x[t+1] <= 1) ;
+end
+
+# Suma de Yij debe ser igual a Xi
+for i in 1:(T-1)
+    @constraint(model, sum(y[i,j] for j in 1:R) == x[i]) ;
 end
 
 # Asumiendo que T y R definen los límites de tus índices
-for z in 2:(T+R)
-    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == (z <= T ? x[z] : 0))
+for z in 3:(T+R)
+    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == (z-1 <= T ? x[z-1] : 0));
 end
 
+# Restricción para no vender en el mismo momento de compra
+for i in 1:T
+    @constraint(model, y[i,1] == 0);
+end
+
+@constraint(model, sum(y[T,j] for j in 1:R) == 0) # El final no se contabiliza;
+
+
+@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - sum(matrixPM[i]*x[i] for i in 1:T) );
 
 
 
-@objective(model, Max, 3x[1] + 4x[2] - 3x[3] )
 
-
-
-optimization_result = optimize!(model)
-
-value.(x)
 ```
 
-```{julia}
-x[0:17]=0
+```{julia, results='hide', message=false, warning=false}
+optimization_result = optimize!(model);
+
+value.(x)
 ```
 
