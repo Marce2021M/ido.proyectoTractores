@@ -11,7 +11,10 @@ nocite: |
 
 # Modelado 1
 
-## Formulación
+## 1.- Formulación
+
+Diseñe un modelo de programación lineal (mixto-entero) para resolver este problema.
+Explique claramente el significado de las variables, restricciones y constantes utilizadas en el modelo.
 
 
 ```{julia}
@@ -19,20 +22,24 @@ using JuMP, HiGHS;
 model = Model(HiGHS.Optimizer);
 
 # Tener en cuenta que x_1 es en realidad x_0
+#  En este problema se considera la primera vez que se compró un tractor.
+T = 20; #20 posiciones en la línea temporal de 19 años
 
-T = 20; #18 posiciones en la línea temporal de 17 años
-
-R = 6 ;#6 posiciones en la línea temporal de 5 años
+R = 6 ;#6 posiciones en la línea temporal de 5 años máximos de depreciación
 
 # Matriz de valor de mercado de tractor
 
-inflacion = .15; # 15% de inflación anual
+inflacion = .05; # 5% de inflación anual
+
+aumentoCosto = .15 ;# 15% de aumento anual en costo de mantenimiento
 
 depreciacionInicial = .1; # 10% de depreciación anual
 
 depreciacionCorriente = .07; # 7% de depreciación anual
 
 pmTractorInicial = 43000/(1+inflacion)^2 ;# Precio inicial de tractor
+
+costoInicial = 1300/(1+aumentoCosto)^2; # Costo inicial de mantenimiento
 
 # Creamos matriz de precio de mercado de tractor
 matrixPM = ones(1, T) * pmTractorInicial;
@@ -57,22 +64,31 @@ end
 
 matrixC = ones(T, R);
 
+for i in 1:T
+    matrixC[i, 1] = costoInicial*(1+aumentoCosto)^(i-1);
+end
 
+for i in 1:T
+    for j in 2:R
+        matrixC[i, j] = matrixC[i, j-1]*(1+aumentoCosto);
+    end
+end
 
 @variable(model, x[1:T], Bin);
 
 @variable(model, y[1:T,1:R], Bin);
 
-@constraint(model, x[T] == 1); # Se deBe vender el tractor el año 17, ya que el Señor Marquez se retira.
+@constraint(model, x[T] == 1); # Se deBe vender el tractor el año 19, ya que el Señor Marquez se retira.
 @constraint(model, x[1] == 1);
 
- # Asegurando que en 5 años debo haber vendido al menos un tractor para todo 12 >= t >= 0
-for t in 1:13
+ # Asegurando que en 5 años debo haber vendido 
+ #al menos un tractor para todo 14 >= t >= 0
+for t in 1:(T-5)
     @constraint(model, x[t] + x[t+1] + x[t+2] + x[t+3] + x[t+4] >= 1);
 end
 
-# Para asegurar que no compres tractor dos años consecutivos para todo 15 >= t >= 0
-for t in 1:16
+# Para asegurar que no compres tractor dos años consecutivos para todo 17 >= t >= 0
+for t in 1:(T-2)
     @constraint(model, x[t] + x[t+1] <= 1) ;
 end
 
@@ -83,7 +99,8 @@ end
 
 # Asumiendo que T y R definen los límites de tus índices
 for z in 3:(T+R)
-    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == (z-1 <= T ? x[z-1] : 0));
+    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == 
+    (z-1 <= T ? x[z-1] : 0));
 end
 
 # Restricción para no vender en el mismo momento de compra
@@ -94,9 +111,8 @@ end
 @constraint(model, sum(y[T,j] for j in 1:R) == 0) # El final no se contabiliza;
 
 
-@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - sum(matrixPM[i]*x[i] for i in 1:T) );
-
-
+@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - 
+sum(matrixPM[i]*x[i] for i in 1:(T-1)) );
 
 
 ```
@@ -107,3 +123,201 @@ optimization_result = optimize!(model);
 value.(x)
 ```
 
+# 2.- Resolución
+
+Resuelva el problema de programación lineal anterior y muestre en diferentes tablas que le ensenarán al Sr. Márquez cómo varían los costes y precios de venta, del tractor en cada año, así como los costes de mantenimiento. Explique dichas tablas e indique cómo se calcularía el coste total de mantenimiento del tractor a lo largo de los 17 años
+
+```{julia}
+using DataFrames
+
+# Crear un DataFrame para mostrar los resultados
+df1 = DataFrame(matrixPM, :auto)
+df1_transposed = DataFrame(transpose(Matrix(df1)), :auto)
+
+df2 = DataFrame(matrixPB,:auto)
+
+df3 = DataFrame(matrixC,:auto)
+
+df1_transposed
+```
+
+```{julia}
+df2
+```
+
+```{julia}
+df3
+```
+
+# 3.- Aumentando costos
+
+```{julia}
+# Creamos matriz estática nueva de mantenimiento de tractor
+aumentoCosto2 = .03 ;# 3% de aumento anual en costo de mantenimiento
+matrixCEst = ones(T, R);
+
+for i in 1:T
+    matrixCEst[i, 1] = .01*matrixPM[1,i]*(1+aumentoCosto)^(i-1);
+end
+
+for i in 1:T
+    for j in 2:3
+        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto);
+    end
+end
+
+for i in 1:T
+    for j in 4:R
+        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto)*(1+aumentoCosto2);
+    end
+end
+
+matrixC = cumsum(matrixCEst, dims=2);
+
+@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - 
+sum(matrixPM[i]*x[i] for i in 1:(T-1)) - 
+sum(matrixC[i,j]*y[i,j] for i in 1:T, j in 1:R) );
+
+```
+
+```{julia}
+optimization_result = optimize!(model);
+
+value.(x)
+
+```
+
+```{julia}
+value.(y)
+```
+
+# 4.- Resolución
+
+Muestre c ́omo el cambio anterior en el coste del tractor afectar ́ıa en el modelo de
+programaci ́on lineal.
+
+**No cambia nada**
+
+# 5.- Conclusiones
+Mart ́ın tiene pensado continuar con el trabajo en la granja una vez que su padre se
+retire. El quiere aprovechar el trabajo de su hermana y evitarse problemas con el
+tractor una vez que su padre se jubile. As ́ı le pide a su hermana que investigue si
+cambiar ́an las pol ́ıticas de reemplazo cuando el cambio del tractor se realice de forma
+peri ́odica en el tiempo. Para de esta manera poder seguir esa pol ́ıtica peri ́odica siempre
+y cuando los precios se ajusten a esos valores sin importar cu ́antos a ̃nos est ́e al frente
+de la granja
+
+
+```{julia}
+using JuMP, HiGHS;
+model = Model(HiGHS.Optimizer);
+
+# Tener en cuenta que x_1 es en realidad x_0
+#  En este problema se considera la primera vez que se compró un tractor.
+T = 7; #20 posiciones en la línea temporal de 19 años
+
+R = 6 ;#6 posiciones en la línea temporal de 5 años máximos de depreciación
+
+# Matriz de valor de mercado de tractor
+
+inflacion = .05; # 5% de inflación anual
+
+aumentoCosto = .15 ;# 15% de aumento anual en costo de mantenimiento
+
+depreciacionInicial = .1; # 10% de depreciación anual
+
+depreciacionCorriente = .07; # 7% de depreciación anual
+
+pmTractorInicial = 43000/(1+inflacion)^2 ;# Precio inicial de tractor
+
+costoInicial = 1300/(1+aumentoCosto)^2; # Costo inicial de mantenimiento
+
+# Creamos matriz de precio de mercado de tractor
+matrixPM = ones(1, T) * pmTractorInicial;
+
+for i in 2:T
+    matrixPM[i] = matrixPM[i-1] * (1+inflacion);
+end
+# Creamos matriz de valor en libros de tractor
+matrixPB = ones(T, R);
+
+for i in 1:T
+    matrixPB[i, 1] = matrixPM[1, i]*(1-depreciacionInicial);
+end
+
+for i in 1:T
+    for j in 2:R
+        matrixPB[i, j] = matrixPB[i, j-1]*(1-depreciacionCorriente);
+    end
+end
+
+
+@variable(model, x[1:T], Bin);
+
+@variable(model, y[1:T,1:R], Bin);
+
+@constraint(model, x[T] == 1); # Se deBe vender el tractor el año 19, ya que el Señor Marquez se retira.
+@constraint(model, x[1] == 1);
+
+ # Asegurando que en 5 años debo haber vendido 
+ #al menos un tractor para todo 14 >= t >= 0
+for t in 1:(T-5)
+    @constraint(model, x[t] + x[t+1] + x[t+2] + x[t+3] + x[t+4] >= 1);
+end
+
+# Para asegurar que no compres tractor dos años consecutivos para todo 17 >= t >= 0
+for t in 1:(T-2)
+    @constraint(model, x[t] + x[t+1] <= 1) ;
+end
+
+# Suma de Yij debe ser igual a Xi
+for i in 1:(T-1)
+    @constraint(model, sum(y[i,j] for j in 1:R) == x[i]) ;
+end
+
+# Asumiendo que T y R definen los límites de tus índices
+for z in 3:(T+R)
+    @constraint(model, sum(y[i, j] for i in 1:T, j in 1:R if i + j == z) == 
+    (z-1 <= T ? x[z-1] : 0));
+end
+
+# Restricción para no vender en el mismo momento de compra
+for i in 1:T
+    @constraint(model, y[i,1] == 0);
+end
+
+@constraint(model, sum(y[T,j] for j in 1:R) == 0) # El final no se contabiliza;
+
+
+# Creamos matriz estática nueva de mantenimiento de tractor
+aumentoCosto2 = .03 ;# 3% de aumento anual en costo de mantenimiento
+matrixCEst = ones(T, R);
+
+for i in 1:T
+    matrixCEst[i, 1] = .01*matrixPM[1,i]*(1+aumentoCosto)^(i-1);
+end
+
+for i in 1:T
+    for j in 2:3
+        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto);
+    end
+end
+
+for i in 1:T
+    for j in 4:R
+        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto)*(1+aumentoCosto2);
+    end
+end
+
+matrixC = cumsum(matrixCEst, dims=2);
+
+@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - 
+sum(matrixPM[i]*x[i] for i in 1:(T-1)) - 
+sum(matrixC[i,j]*y[i,j] for i in 1:T, j in 1:R) );
+
+optimize!(model)
+
+value.(x)
+
+
+```
