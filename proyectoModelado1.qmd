@@ -214,7 +214,7 @@ model = Model(HiGHS.Optimizer);
 
 # Tener en cuenta que x_1 es en realidad x_0
 #  En este problema se considera la primera vez que se compró un tractor.
-T = 7; #20 posiciones en la línea temporal de 19 años
+T = 100; #20 posiciones en la línea temporal de 19 años
 
 R = 6 ;#6 posiciones en la línea temporal de 5 años máximos de depreciación
 
@@ -232,25 +232,19 @@ pmTractorInicial = 43000/(1+inflacion)^2 ;# Precio inicial de tractor
 
 costoInicial = 1300/(1+aumentoCosto)^2; # Costo inicial de mantenimiento
 
-# Creamos matriz de precio de mercado de tractor
-matrixPM = ones(1, T) * pmTractorInicial;
-
-for i in 2:T
-    matrixPM[i] = matrixPM[i-1] * (1+inflacion);
+# Creamos función de precio de mercado de tractor
+function precioMercado(i)
+    return pmTractorInicial*(1+inflacion)^(i-1);
 end
-# Creamos matriz de valor en libros de tractor
-matrixPB = ones(T, R);
+# Creamos función de valor en libros de tractor
 
-for i in 1:T
-    matrixPB[i, 1] = matrixPM[1, i]*(1-depreciacionInicial);
-end
-
-for i in 1:T
-    for j in 2:R
-        matrixPB[i, j] = matrixPB[i, j-1]*(1-depreciacionCorriente);
+function precioLibros(i, j)
+    if j == 1
+        return precioMercado(i)*(1-depreciacionInicial);
+    else
+        return precioLibros(i, j-1)*(1-depreciacionCorriente);
     end
 end
-
 
 @variable(model, x[1:T], Bin);
 
@@ -291,33 +285,100 @@ end
 
 # Creamos matriz estática nueva de mantenimiento de tractor
 aumentoCosto2 = .03 ;# 3% de aumento anual en costo de mantenimiento
-matrixCEst = ones(T, R);
 
-for i in 1:T
-    matrixCEst[i, 1] = .01*matrixPM[1,i]*(1+aumentoCosto)^(i-1);
-end
 
-for i in 1:T
-    for j in 2:3
-        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto);
+function costosMantenimiento1(i, j)
+    if j == 1
+        return costoInicial*(1+aumentoCosto)^(i-1);
+    else
+        return costosMantenimiento1(i, j-1)*(1+aumentoCosto);
     end
 end
 
-for i in 1:T
-    for j in 4:R
-        matrixCEst[i, j] = matrixCEst[i, j-1]*(1+aumentoCosto)*(1+aumentoCosto2);
+function costosMantenimiento2(i, j)
+    if j == 1
+        return .01*precioMercado(i)*(1+aumentoCosto)^(i-1);
+    elseif j == 2 || j == 3
+        return costosMantenimiento2(i, j-1)*(1+aumentoCosto);
+    else
+        return costosMantenimiento2(i, j-1)*(1+aumentoCosto)*(1+aumentoCosto2);
     end
 end
 
-matrixC = cumsum(matrixCEst, dims=2);
+function acumCostosMantenimiento1(i, j)
+    if j == 1
+        return 0;
+    else
+        return sum(costosMantenimiento1(i, k) for k in 2:j);
+    end
+end
 
-@objective(model, Max, sum(matrixPB[i,j]*y[i,j] for i in 1:T, j in 1:R) - 
-sum(matrixPM[i]*x[i] for i in 1:(T-1)) - 
-sum(matrixC[i,j]*y[i,j] for i in 1:T, j in 1:R) );
+function acumCostosMantenimiento2(i, j)
+    if j == 1
+        return 0;
+    else
+        return sum(costosMantenimiento2(i, k) for k in 2:j);
+    end
+end
 
-optimize!(model)
+
+@objective(model, Max, sum(precioLibros(i,j)*y[i,j] for i in 1:T, j in 1:R) - 
+sum(precioMercado(i)*x[i] for i in 1:(T-1)) - 
+sum(acumCostosMantenimiento2(i,j)*y[i,j] for i in 1:T, j in 1:R) );
+
+resultado = optimize!(model)
 
 value.(x)
 
 
+```
+
+```{julia}
+value.(y)
+
+```
+
+```{julia}
+using Plots
+gr()
+
+# Generamos los datos para la tabla y la gráfica
+años = 0:19
+precios = [precioMercado(i+1) for i in años]
+
+# Creando la tabla
+println("Año | Precio de Mercado")
+println("---------------------")
+for i in años
+    println("$i | $(precioMercado(i+1))")
+end
+
+# Creando la gráfica
+p = plot(años, precios, title="Precio de Mercado del Tractor", xlabel="Año", ylabel="Precio", legend=false)
+
+# Guardando la gráfica en un archivo JPG
+savefig(p, "PM_tractor.png")
+
+
+
+```
+
+```{julia}
+
+# Crear la tabla
+println("i\\j", " ", join(0:5, "  "))
+for i in 0:19
+    precios = [precioLibros(i+1, j) for j in 1:6]
+    println("$i  ", join(precios, "  "))
+end
+
+```
+
+```{julia}
+# Crear la tabla
+println("i\\j", " ", join(0:5, "  "))
+for i in 0:19
+    precios = [acumCostosMantenimiento2(i+1, j) for j in 1:6]
+    println("$i  ", join(precios, "  "))
+end
 ```
