@@ -382,3 +382,233 @@ for i in 0:19
     println("$i  ", join(precios, "  "))
 end
 ```
+
+# 6.- Haciendo varias pruebas del PPL para varias instancias
+
+
+```{julia}
+using JuMP, HiGHS
+M = 6
+N = 7
+L = 100
+
+matrixCostos = [
+    10 30 30 40 50 60 80;
+    50 25 40 30 60 30 5;
+    70 50 15 60 40 50 60;
+    30 50	40	30	10	70	45;
+    60 30	40	10	50	70	35;
+    30 40	50	30	40	50	10;
+]
+
+poblacion = [75, 50, 100, 150, 120, 80]
+
+model = Model(HiGHS.Optimizer)
+
+@variable(model, x[1:M, 1:N] >= 0, Bin)
+@variable(model, y[1:N] >= 0, Bin)
+
+@constraint(model, [i=1:M], sum(x[i,j] for j=1:N) == 1)
+@constraint(model, [j=1:N], sum(x[i,j]*poblacion[i] for i=1:M) >= L*y[j])
+@constraint(model, [j=1:N], sum(x[i,j]*poblacion[i] for i=1:M) <= sum(poblacion)*y[j])
+
+@objective(model, Min, sum(matrixCostos[i,j]*x[i,j] for i=1:M, j=1:N))
+
+optimize!(model)
+
+```
+
+
+```{julia}
+solution_summary(model; verbose = true)
+```
+
+```{julia}
+value.(x)
+```
+
+```{julia}
+value.(y)
+
+```
+
+```{julia}
+using DelimitedFiles
+
+data1 = readdlm("p1.txt", ' ', Float64)
+
+
+data2 = readdlm("p2.txt", ' ', Float64)
+
+data3 = readdlm("p3.txt", ' ', Float64)
+
+data4 = readdlm("p4.txt", ' ', Float64)
+
+data5 = readdlm("p5.txt", ' ', Float64)
+coordinates = data5[:,2:3]
+```
+
+```{julia}
+using JuMP, HiGHS, LinearAlgebra
+function solve_tsp(coordinates)
+    # Calculate the distance matrix
+    n = size(coordinates, 1)
+    dist = [norm(coordinates[i, :] - coordinates[j, :]) for i in 1:n, j in 1:n]
+
+    # Create a model
+    model = Model(HiGHS.Optimizer)
+
+    # Define variables
+    @variable(model, x[1:n, 1:n], Bin)
+    @variable(model, u[1:n], Int)
+
+    # Define objective
+    @objective(model, Min, sum(dist[i, j] * (x[i, j]+x[j, i]) for i in 1:n for j in i+1:n))
+
+    # Add constraints
+    for i in 1:n
+        @constraint(model, sum(x[i, j] for j in 1:n) == 1)
+        @constraint(model, sum(x[j, i] for j in 1:n) == 1)
+    end
+
+    for i in 2:n
+        for j in 2:n
+            if i != j
+                @constraint(model, u[i]-u[j]+(n-1)*x[i,j] <= n-2)
+            end
+        end
+    end
+
+    for i in 1:n
+    @constraint(model, x[i,i] == 0)
+    end
+
+
+    # Solve the problem
+    start_time = time()
+    optimize!(model)
+    end_time = time()
+
+    # Get the solution
+    solution = value.(x)
+
+    # Calculate the total distance
+    total_distance =sum(dist[i, j] * solution[i, j] for i in 1:n for j in i+1:n)
+
+    return total_distance, end_time - start_time, solution
+end
+```
+
+```{julia}
+# Primero
+distTot1, timeTotal1, sol1 =  solve_tsp(data1[:,2:3])
+```
+
+
+
+```{julia}
+# Segundo
+distTot2, timeTotal2, sol2 =  solve_tsp(data2[:,2:3])
+
+```4
+
+```{julia}
+distTot2*2
+```
+
+
+```{julia}
+distTot3, timeTotal3, sol3 =  solve_tsp(data3[:,2:3])
+```
+
+```{julia}
+distTot4, timeTotal4, sol4 =  solve_tsp(data4[:,2:3])
+```
+
+```{julia}
+distTot5, timeTotal5, sol5 =  solve_tsp(data5[:,2:3])
+```
+
+```{julia}
+using Plots
+
+function plot_solution(coordinates, solution)
+    # Extract the x and y coordinates
+    x_coords = coordinates[:, 1]
+    y_coords = coordinates[:, 2]
+
+    # Initialize tour with the starting point
+    n = size(coordinates, 1)
+    tour = [1]
+    current = 1
+
+    # Construct the tour from the solution
+    for i in 2:n
+        for j in 1:n
+            if solution[current, j] > 0.5  # Assuming a threshold to determine the path
+                push!(tour, j)
+                current = j  # Update current location
+                break
+            end
+        end
+    end
+    push!(tour, 1)  # Return to the starting point
+
+    # Create a plot of the tour
+    p = plot(x_coords[tour], y_coords[tour], marker = :circle, line = (:blue, 1), legend = false)
+    scatter!(p, x_coords, y_coords, color = :red)  # Optionally add the points as well
+    return p
+end
+
+# Assuming data5 and sol5 are defined appropriately
+# plot_solution(data5[:, 2:3], sol5)
+
+
+# Plot the solution for the first data set
+p = plot_solution(data4[:,2:3], sol4)
+savefig(p, "tsp_solution1.png")
+
+
+```
+
+```{julia}
+using JuMP, HiGHS, LinearAlgebra, Gurobi
+
+function solve_tsp(coordinates)
+    n = size(coordinates, 1)
+    dist = [norm(coordinates[i, :] - coordinates[j, :]) for i in 1:n, j in 1:n]
+
+    model = Model(Gurobi.Optimizer)
+
+    @variable(model, x[i=1:n, j=1:n], Bin)
+
+    @variable(model, 2<= u[2:n] <= n, Int)
+
+    @objective(model, Min, sum(dist[i, j] * x[i, j] for i in 1:n for j = 1:n  if j != i))
+
+    for i in 1:n
+        @constraint(model, sum(x[i, j] for j in 1:n if j!=i) == 1)
+        @constraint(model, sum(x[j, i] for j in 1:n if j!=i) == 1 )
+    end
+
+    for i in 2:n
+        for j in 2:n
+            if i != j
+                @constraint(model, u[i] - u[j] + 1 <= (n-1)*(1-x[i,j]))
+            end
+        end
+    end
+
+    start_time = time()
+    optimize!(model)
+    end_time = time()
+
+    solution = value.(x)
+    total_distance = sum(dist[i, j] * solution[i, j] for i in 1:n for j = i+1:n)
+
+    return total_distance, end_time-start_time, solution
+end
+
+
+```
+
