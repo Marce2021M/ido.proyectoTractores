@@ -571,44 +571,4 @@ savefig(p, "tsp_solution1.png")
 
 ```
 
-```{julia}
-using JuMP, HiGHS, LinearAlgebra, Gurobi
-
-function solve_tsp(coordinates)
-    n = size(coordinates, 1)
-    dist = [norm(coordinates[i, :] - coordinates[j, :]) for i in 1:n, j in 1:n]
-
-    model = Model(Gurobi.Optimizer)
-
-    @variable(model, x[i=1:n, j=1:n], Bin)
-
-    @variable(model, 2<= u[2:n] <= n, Int)
-
-    @objective(model, Min, sum(dist[i, j] * x[i, j] for i in 1:n for j = 1:n  if j != i))
-
-    for i in 1:n
-        @constraint(model, sum(x[i, j] for j in 1:n if j!=i) == 1)
-        @constraint(model, sum(x[j, i] for j in 1:n if j!=i) == 1 )
-    end
-
-    for i in 2:n
-        for j in 2:n
-            if i != j
-                @constraint(model, u[i] - u[j] + 1 <= (n-1)*(1-x[i,j]))
-            end
-        end
-    end
-
-    start_time = time()
-    optimize!(model)
-    end_time = time()
-
-    solution = value.(x)
-    total_distance = sum(dist[i, j] * solution[i, j] for i in 1:n for j = i+1:n)
-
-    return total_distance, end_time-start_time, solution
-end
-
-
-```
 
