@@ -493,7 +493,7 @@ function solve_tsp(coordinates)
     solution = value.(x)
 
     # Calculate the total distance
-    total_distance =sum(dist[i, j] * solution[i, j] for i in 1:n for j in i+1:n)
+    total_distance =sum(dist[i, j] * solution[i, j] for i in 1:n for j in 1:n)
 
     return total_distance, end_time - start_time, solution
 end
@@ -510,11 +510,8 @@ distTot1, timeTotal1, sol1 =  solve_tsp(data1[:,2:3])
 # Segundo
 distTot2, timeTotal2, sol2 =  solve_tsp(data2[:,2:3])
 
-```4
-
-```{julia}
-distTot2*2
 ```
+
 
 
 ```{julia}
